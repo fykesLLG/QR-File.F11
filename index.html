@@ -1,0 +1,514 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>QR Сканер · Генератор · Файлы</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0f0f10; color: #fff; min-height: 100vh; padding-bottom: 40px; }
+  header { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; background: #1a1a1c; position: sticky; top: 0; z-index: 100; border-bottom: 1px solid #222; }
+  h1 { font-size: 16px; font-weight: 600; }
+  button { cursor: pointer; border: none; border-radius: 10px; padding: 12px 16px; font-size: 15px; background: #2a2a2e; color: #fff; transition: opacity .15s; font-family: inherit; }
+  button:active { opacity: .7; }
+  button:disabled { opacity: .5; cursor: wait; }
+  button.primary { background: #0a84ff; }
+  button.danger { background: #ff3b30; }
+  button.success { background: #30d158; color: #000; }
+
+  .tabs { display: flex; gap: 6px; padding: 12px 12px 0; }
+  .tab { flex: 1; background: #1a1a1c; padding: 10px 6px; font-size: 13px; }
+  .tab.active { background: #0a84ff; }
+  .tab-content { display: none; padding: 14px; }
+  .tab-content.active { display: block; }
+
+  /* Сканер */
+  .scan-container { position: relative; border-radius: 14px; overflow: hidden; background: #000; aspect-ratio: 3/4; }
+  #video { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .scan-overlay { position: absolute; inset: 0; pointer-events: none; display: flex; align-items: center; justify-content: center; }
+  .scan-frame { width: 70%; aspect-ratio: 1; border: 3px solid rgba(10,132,255,.9); border-radius: 20px; box-shadow: 0 0 0 9999px rgba(0,0,0,.35); }
+  .scan-line { position: absolute; left: 15%; right: 15%; height: 2px; background: #0a84ff; box-shadow: 0 0 12px #0a84ff; animation: scanline 2s linear infinite; }
+  @keyframes scanline { 0% { top: 20%; } 50% { top: 80%; } 100% { top: 20%; } }
+
+  .controls { display: flex; gap: 8px; margin-top: 12px; }
+  .controls button { flex: 1; }
+
+  .result { margin-top: 14px; padding: 14px; background: #1a1a1c; border-radius: 12px; word-break: break-all; font-size: 15px; line-height: 1.5; min-height: 60px; border: 1px solid #222; }
+  .result a { color: #0a84ff; text-decoration: none; font-weight: 500; }
+  .result .label { color: #8a8a8e; font-size: 12px; text-transform: uppercase; letter-spacing: .5px; margin-bottom: 6px; display: block; }
+  .result .copy-btn { margin-top: 10px; padding: 8px 12px; font-size: 13px; background: #2a2a2e; }
+
+  textarea, input[type=text] { width: 100%; padding: 14px; border-radius: 12px; border: 1px solid #2a2a2e; background: #1a1a1c; color: #fff; font-size: 16px; font-family: inherit; resize: vertical; outline: none; }
+  textarea:focus, input:focus { border-color: #0a84ff; }
+
+  #qrOutput, #fileQrOutput { margin-top: 16px; text-align: center; }
+  #qrOutput canvas, #fileQrOutput canvas { max-width: 100%; height: auto; border-radius: 12px; background: #fff; padding: 12px; }
+  .btn-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+  .btn-row button { flex: 1; min-width: 120px; }
+
+  .hint { font-size: 13px; color: #8a8a8e; margin-top: 10px; text-align: center; line-height: 1.5; }
+  .status { font-size: 13px; color: #8a8a8e; text-align: center; margin-top: 10px; line-height: 1.5; }
+
+  /* Файл */
+  .drop-zone {
+    border: 2px dashed #2a2a2e; border-radius: 14px; padding: 28px 16px;
+    text-align: center; cursor: pointer; transition: all .2s; background: #141416;
+  }
+  .drop-zone:hover, .drop-zone.drag { border-color: #0a84ff; background: #101820; }
+  .drop-zone .icon { font-size: 42px; margin-bottom: 8px; }
+  .drop-zone .title { font-size: 15px; font-weight: 600; margin-bottom: 4px; }
+  .drop-zone .sub { font-size: 13px; color: #8a8a8e; }
+  .drop-zone input[type=file] { display: none; }
+
+  .file-info {
+    margin-top: 12px; padding: 12px; background: #1a1a1c; border-radius: 12px;
+    border: 1px solid #222; font-size: 14px; display: flex; align-items: center; gap: 10px;
+  }
+  .file-info .file-icon { font-size: 24px; }
+  .file-info .file-name { flex: 1; word-break: break-all; }
+
+  .progress-bar {
+    margin-top: 12px; height: 6px; background: #2a2a2e; border-radius: 3px; overflow: hidden; display: none;
+  }
+  .progress-bar.active { display: block; }
+  .progress-bar-inner {
+    height: 100%; background: linear-gradient(90deg, #0a84ff, #30d158);
+    width: 0%; transition: width .3s; border-radius: 3px;
+  }
+
+  .link-box {
+    margin-top: 14px; padding: 14px; background: #101820; border: 1px solid #0a84ff33;
+    border-radius: 12px; word-break: break-all; font-size: 14px; line-height: 1.5;
+  }
+  .link-box .label { color: #0a84ff; font-size: 12px; text-transform: uppercase; letter-spacing: .5px; margin-bottom: 6px; display: block; font-weight: 600; }
+  .link-box a { color: #0a84ff; text-decoration: none; }
+
+  .toast {
+    position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%);
+    background: #30d158; color: #000; padding: 12px 20px; border-radius: 30px;
+    font-weight: 600; font-size: 14px; z-index: 999; opacity: 0; transition: opacity .3s;
+    pointer-events: none; box-shadow: 0 8px 24px rgba(0,0,0,.4);
+  }
+  .toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>📷 QR & Файлы</h1>
+  <button id="fsBtn">⛶ На весь экран</button>
+</header>
+
+<div class="tabs">
+  <button class="tab active" data-tab="scan">Сканер</button>
+  <button class="tab" data-tab="gen">QR-код</button>
+  <button class="tab" data-tab="file">📤 Файл</button>
+</div>
+
+<!-- ================= СКАНЕР ================= -->
+<div id="scan" class="tab-content active">
+  <div class="scan-container">
+    <video id="video" playsinline autoplay muted></video>
+    <div class="scan-overlay">
+      <div class="scan-frame"></div>
+      <div class="scan-line" id="scanLine" style="display:none"></div>
+    </div>
+  </div>
+  <div class="controls">
+    <button class="primary" id="startBtn">▶ Запустить камеру</button>
+    <button id="stopBtn">■ Стоп</button>
+    <button id="flipBtn" style="flex:0 0 60px;">🔄</button>
+  </div>
+  <div class="status" id="status">Нажмите «Запустить камеру»</div>
+  <div id="scanResult" class="result">
+    <span class="label">Результат</span>
+    Здесь появится распознанный текст или ссылка
+  </div>
+</div>
+
+<!-- ================= ГЕНЕРАТОР QR ================= -->
+<div id="gen" class="tab-content">
+  <textarea id="genText" rows="4" placeholder="Введите текст или ссылку..."></textarea>
+  <div class="btn-row">
+    <button class="primary" id="genBtn" style="flex:1; width:100%">🔵 Сгенерировать QR-код</button>
+  </div>
+  <div id="qrOutput"></div>
+  <div class="hint">Настоящий QR-код, читаемый любым сканером. Можно скачать в PNG.</div>
+</div>
+
+<!-- ================= ЗАГРУЗКА ФАЙЛА ================= -->
+<div id="file" class="tab-content">
+  <div class="drop-zone" id="dropZone">
+    <input type="file" id="fileInput">
+    <div class="icon">📁</div>
+    <div class="title">Выбрать файл или перетащить сюда</div>
+    <div class="sub">Любой тип · до 100 МБ · получите ссылку и QR-код</div>
+  </div>
+
+  <div id="fileInfo"></div>
+
+  <div class="progress-bar" id="progressBar">
+    <div class="progress-bar-inner" id="progressInner"></div>
+  </div>
+
+  <div class="btn-row" id="fileActions" style="display:none;">
+    <button class="primary" id="uploadBtn">☁️ Загрузить и получить ссылку</button>
+    <button id="clearFileBtn">✕ Очистить</button>
+  </div>
+
+  <div class="status" id="fileStatus"></div>
+
+  <div id="fileResult"></div>
+  <div id="fileQrOutput"></div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
+<script>
+/* ================= УТИЛИТЫ ================= */
+const toastEl = document.getElementById('toast');
+function toast(msg, color) {
+  toastEl.textContent = msg;
+  toastEl.style.background = color || '#30d158';
+  toastEl.classList.add('show');
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => toastEl.classList.remove('show'), 2200);
+}
+
+/* ================= FULLSCREEN ================= */
+const fsBtn = document.getElementById('fsBtn');
+fsBtn.addEventListener('click', async () => {
+  try {
+    const el = document.documentElement;
+    if (!document.fullscreenElement && !document.webkitFullscreenElement) {
+      if (el.requestFullscreen) await el.requestFullscreen();
+      else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen();
+    } else {
+      if (document.exitFullscreen) await document.exitFullscreen();
+      else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
+    }
+  } catch (e) { alert('Fullscreen недоступен: ' + e.message); }
+});
+document.addEventListener('fullscreenchange', () => {
+  fsBtn.textContent = document.fullscreenElement ? '⛶ Выйти' : '⛶ На весь экран';
+});
+
+/* ================= TABS ================= */
+document.querySelectorAll('.tab').forEach(t => {
+  t.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
+    document.querySelectorAll('.tab-content').forEach(x => x.classList.remove('active'));
+    t.classList.add('active');
+    document.getElementById(t.dataset.tab).classList.add('active');
+    if (t.dataset.tab !== 'scan') stopScan();
+  });
+});
+
+/* ================= СКАНЕР ================= */
+const video       = document.getElementById('video');
+const statusEl    = document.getElementById('status');
+const scanResult  = document.getElementById('scanResult');
+const scanLine    = document.getElementById('scanLine');
+const startBtn    = document.getElementById('startBtn');
+const stopBtn     = document.getElementById('stopBtn');
+const flipBtn     = document.getElementById('flipBtn');
+
+let stream        = null;
+let scanning      = false;
+let detector      = null;
+let jsqrCanvas    = null;
+let lastText      = '';
+let lastTime      = 0;
+let currentFacing = 'environment';
+
+async function initDetector() {
+  if ('BarcodeDetector' in window) {
+    try {
+      const supported = await BarcodeDetector.getSupportedFormats();
+      detector = new BarcodeDetector({ formats: supported });
+      statusEl.textContent = '✅ Нативный BarcodeDetector · ' + supported.length + ' форматов';
+      return true;
+    } catch (e) { detector = null; }
+  }
+  statusEl.textContent = '⚙️ Fallback jsQR (QR-коды)';
+  return false;
+}
+
+async function startScan() {
+  if (scanning) return;
+  try {
+    if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: currentFacing }, width: { ideal: 1280 }, height: { ideal: 720 } },
+      audio: false
+    });
+    video.srcObject = stream;
+    await video.play();
+    scanning = true;
+    scanLine.style.display = 'block';
+    startBtn.textContent = '⏳ Сканирование...';
+    startBtn.disabled = true;
+    if (!detector) await initDetector();
+    requestAnimationFrame(scanLoop);
+  } catch (e) {
+    statusEl.textContent = '❌ Ошибка камеры: ' + e.message;
+    alert('Не удалось получить доступ к камере.\n\n' + e.message +
+          '\n\nНужен HTTPS и разрешение на камеру.');
+  }
+}
+
+function stopScan() {
+  scanning = false;
+  if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+  video.srcObject = null;
+  scanLine.style.display = 'none';
+  startBtn.textContent = '▶ Запустить камеру';
+  startBtn.disabled = false;
+}
+
+async function scanLoop() {
+  if (!scanning) return;
+
+  if (video.readyState === video.HAVE_ENOUGH_DATA) {
+    let found = null;
+    try {
+      if (detector) {
+        const codes = await detector.detect(video);
+        if (codes && codes.length > 0) found = codes[0].rawValue;
+      }
+      if (!found && window.jsQR) {
+        if (!jsqrCanvas) jsqrCanvas = document.createElement('canvas');
+        const w = video.videoWidth, h = video.videoHeight;
+        if (w && h) {
+          if (jsqrCanvas.width !== w) { jsqrCanvas.width = w; jsqrCanvas.height = h; }
+          const ctx = jsqrCanvas.getContext('2d', { willReadFrequently: true });
+          ctx.drawImage(video, 0, 0, w, h);
+          const img = ctx.getImageData(0, 0, w, h);
+          const code = window.jsQR(img.data, img.width, img.height, { inversionAttempts: 'dontInvert' });
+          if (code && code.data) found = code.data;
+        }
+      }
+    } catch (e) {}
+
+    if (found) {
+      const now = Date.now();
+      if (found !== lastText || now - lastTime > 2500) {
+        lastText = found;
+        lastTime = now;
+        showScanResult(found);
+      }
+    }
+  }
+  setTimeout(() => requestAnimationFrame(scanLoop), 80);
+}
+
+function showScanResult(text) {
+  if (navigator.vibrate) try { navigator.vibrate(80); } catch(_) {}
+
+  scanResult.innerHTML = '';
+  const label = document.createElement('span');
+  label.className = 'label';
+  label.textContent = 'Результат';
+  scanResult.appendChild(label);
+
+  const isUrl = /^(https?:\/\/|www\.)\S+/i.test(text.trim());
+  if (isUrl) {
+    const href = /^https?:\/\//i.test(text) ? text : 'https://' + text;
+    const a = document.createElement('a');
+    a.href = href; a.target = '_blank'; a.rel = 'noopener'; a.textContent = text;
+    scanResult.appendChild(a);
+  } else {
+    const div = document.createElement('div');
+    div.style.whiteSpace = 'pre-wrap';
+    div.textContent = text;
+    scanResult.appendChild(div);
+  }
+
+  const wrap = document.createElement('div');
+  wrap.style.display = 'flex'; wrap.style.gap = '8px'; wrap.style.marginTop = '12px';
+
+  const copyBtn = document.createElement('button');
+  copyBtn.className = 'copy-btn';
+  copyBtn.textContent = '📋 Копировать';
+  copyBtn.style.flex = '1';
+  copyBtn.onclick = async () => {
+    try { await navigator.clipboard.writeText(text); toast('Скопировано'); }
+    catch { toast('Ошибка', '#ff3b30'); }
+  };
+  wrap.appendChild(copyBtn);
+
+  if (isUrl) {
+    const openBtn = document.createElement('button');
+    openBtn.className = 'copy-btn';
+    openBtn.textContent = '🔗 Открыть';
+    openBtn.style.flex = '1';
+    openBtn.style.background = '#0a84ff';
+    openBtn.onclick = () => {
+      const href = /^https?:\/\//i.test(text) ? text : 'https://' + text;
+      window.open(href, '_blank', 'noopener');
+    };
+    wrap.appendChild(openBtn);
+  }
+  scanResult.appendChild(wrap);
+}
+
+startBtn.addEventListener('click', startScan);
+stopBtn.addEventListener('click', stopScan);
+flipBtn.addEventListener('click', async () => {
+  currentFacing = currentFacing === 'environment' ? 'user' : 'environment';
+  if (scanning) { stopScan(); await startScan(); }
+});
+
+initDetector();
+
+/* ================= ГЕНЕРАТОР QR ================= */
+const genBtn   = document.getElementById('genBtn');
+const genText  = document.getElementById('genText');
+const qrOutput = document.getElementById('qrOutput');
+
+function makeQr(canvas, text, container) {
+  QRCode.toCanvas(canvas, text, {
+    width: 320, margin: 2,
+    errorCorrectionLevel: 'M',
+    color: { dark: '#000000', light: '#ffffff' }
+  }, (err) => {
+    if (err) { alert('Ошибка: ' + err.message); return; }
+    container.appendChild(canvas);
+
+    const dlWrap = document.createElement('div');
+    dlWrap.className = 'btn-row';
+
+    const dl = document.createElement('button');
+    dl.className = 'primary';
+    dl.textContent = '💾 Скачать PNG';
+    dl.onclick = () => {
+      const a = document.createElement('a');
+      a.href = canvas.toDataURL('image/png');
+      a.download = 'qr-' + Date.now() + '.png';
+      a.click();
+    };
+    dlWrap.appendChild(dl);
+
+    const copyImg = document.createElement('button');
+    copyImg.textContent = '📋 Копировать QR';
+    copyImg.onclick = async () => {
+      try {
+        canvas.toBlob(async (blob) => {
+          try {
+            await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+            toast('QR скопирован');
+          } catch { toast('Не поддерживается', '#ff3b30'); }
+        });
+      } catch (e) { toast('Ошибка', '#ff3b30'); }
+    };
+    dlWrap.appendChild(copyImg);
+
+    container.appendChild(dlWrap);
+  });
+}
+
+genBtn.addEventListener('click', () => {
+  const text = genText.value.trim();
+  if (!text) { alert('Введите текст для генерации QR-кода'); return; }
+  qrOutput.innerHTML = '';
+  makeQr(document.createElement('canvas'), text, qrOutput);
+});
+
+/* ================= ЗАГРУЗКА ФАЙЛА ================= */
+const dropZone     = document.getElementById('dropZone');
+const fileInput    = document.getElementById('fileInput');
+const fileInfo     = document.getElementById('fileInfo');
+const fileActions  = document.getElementById('fileActions');
+const uploadBtn    = document.getElementById('uploadBtn');
+const clearFileBtn = document.getElementById('clearFileBtn');
+const fileStatus   = document.getElementById('fileStatus');
+const fileResult   = document.getElementById('fileResult');
+const fileQrOutput = document.getElementById('fileQrOutput');
+const progressBar  = document.getElementById('progressBar');
+const progressInner= document.getElementById('progressInner');
+
+let selectedFile = null;
+
+function fmtSize(b) {
+  if (b < 1024) return b + ' Б';
+  if (b < 1024*1024) return (b/1024).toFixed(1) + ' КБ';
+  if (b < 1024*1024*1024) return (b/1024/1024).toFixed(2) + ' МБ';
+  return (b/1024/1024/1024).toFixed(2) + ' ГБ';
+}
+
+function setFile(file) {
+  selectedFile = file;
+  fileResult.innerHTML = '';
+  fileQrOutput.innerHTML = '';
+  fileStatus.textContent = '';
+
+  if (!file) {
+    fileInfo.innerHTML = '';
+    fileActions.style.display = 'none';
+    return;
+  }
+
+  // Проверка размера
+  const MAX = 100 * 1024 * 1024; // 100 MB
+  if (file.size > MAX) {
+    fileInfo.innerHTML = '<div class="file-info"><div class="file-icon">⚠️</div><div class="file-name">Файл слишком большой (макс. 100 МБ)</div></div>';
+    fileActions.style.display = 'none';
+    return;
+  }
+
+  const icon = file.type.startsWith('image/') ? '🖼️'
+             : file.type.startsWith('video/') ? '🎬'
+             : file.type.startsWith('audio/') ? '🎵'
+             : file.type.includes('pdf') ? '📕'
+             : file.name.match(/\.(zip|rar|7z|tar|gz)$/i) ? '🗜️'
+             : file.name.match(/\.(doc|docx|txt|rtf)$/i) ? '📄'
+             : '📁';
+
+  fileInfo.innerHTML = `
+    <div class="file-info">
+      <div class="file-icon">${icon}</div>
+      <div class="file-name">
+        <div style="font-weight:600;">${file.name}</div>
+        <div style="font-size:12px; color:#8a8a8e; margin-top:2px;">${fmtSize(file.size)} · ${file.type || 'неизвестный тип'}</div>
+      </div>
+    </div>
+  `;
+  fileActions.style.display = 'flex';
+}
+
+dropZone.addEventListener('click', () => fileInput.click());
+fileInput.addEventListener('change', e => setFile(e.target.files[0]));
+
+['dragover', 'dragenter'].forEach(ev => dropZone.addEventListener(ev, e => {
+  e.preventDefault(); dropZone.classList.add('drag');
+}));
+['dragleave', 'drop'].forEach(ev => dropZone.addEventListener(ev, e => {
+  e.preventDefault(); dropZone.classList.remove('drag');
+}));
+dropZone.addEventListener('drop', e => {
+  if (e.dataTransfer.files[0]) setFile(e.dataTransfer.files[0]);
+});
+
+clearFileBtn.addEventListener('click', () => {
+  setFile(null);
+  fileInput.value = '';
+});
+
+/* ---- Загрузка на публичные сервисы ---- */
+async function uploadWithProgress(file, onProgress) {
+  // Используем XHR, чтобы показывать прогресс
+  const tryServices = [
+    // 1) tmpfiles.org — постоянные ссылки, до 100 МБ
+    {
+      name: 'tmpfiles.org',
+      build: () => {
+        const fd = new FormData();
+        fd.append('file', file);
+        return { url: 'https://tmpfiles.org/api/v1/upload', body: fd, headers: {} };
+      },
+      parse: (text) => {
+        const data = JSON.parse(text);
+        if (data && data.data && data.data.url) {
+          // конвертируем 
